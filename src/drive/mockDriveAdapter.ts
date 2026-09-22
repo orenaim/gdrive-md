@@ -40,18 +40,11 @@ declare global {
   }
 }
 
-const DEFAULT_DOCUMENT = `# Company
+const DEFAULT_DOCUMENT = `# Product
 
-Headwall provides end-to-end **account security** for the AI era.
+One platform, four layers. A data foundation, and three capability layers on top of it.
 
-## Why now
-
-AI is fundamentally changing who — and what — signs in.
-
-## Roadmap
-
-- Identity graph
-- Session brokering
+Shorthand: **data, identity, models, operations.** Use it — the full names are a mouthful and nobody says them twice. Note *operations*, not *agents*: our security agents are the implementation, while **agent** everywhere else in this brain means the thing we detect and gate.
 
 |  |  |  |
 |---|---|---|
@@ -59,6 +52,26 @@ AI is fundamentally changing who — and what — signs in.
 | **identity** | [identity.md](https://example.com/identity.md) | Adaptive Identity & Enforcement, and trust tiers |
 |  | [stepup.md](https://example.com/stepup.md) | Which action needs which tier, for which actor — part of identity |
 | **models** | [models.md](https://example.com/models.md) | Account Security Foundation Model |
+| **operations** | [operations.md](https://example.com/operations.md) | Agentic Security Operations |
+
+One file per product area. A new file means a new area, not a new feature — depth below the shape belongs in \`prd/\`.
+
+## What it stops
+
+Three threats, driven by AI in two different ways. Takeover and fraud are old problems becoming urgent because **attackers** now have AI — deepfakes, phishing at scale, fake identities, support attacks. Agent control is a genuinely new problem, caused by **legitimate users' own agents**. Keep them apart: they have different causes, and a customer can be sold one without believing in the other.
+
+### Account takeover
+
+Is the account owner behind this action?
+
+### Fraud & abuse
+
+Is a genuine user behind this account? Fake accounts for promo abuse, reselling tokens, bot farms, synthetic usage, coordinated rings.
+
+## Shape
+
+- Identity graph
+- Session brokering
 `;
 
 export class MockDriveAdapter implements DriveAdapter {

@@ -20,7 +20,8 @@ export const documentTheme = EditorView.theme({
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
     fontFamily: 'var(--hw-font-body)',
-    lineHeight: '1.75',
+    // 1.75 was too airy for a document that also renders its blank lines.
+    lineHeight: '1.6',
     overflowY: 'auto',
     justifyContent: 'center',
   },
@@ -43,12 +44,29 @@ export const documentTheme = EditorView.theme({
   },
 
   // --- Headings -----------------------------------------------------------
-  '.hw-line-h1': { fontSize: '2em', fontWeight: '700', lineHeight: '1.25', padding: '0.6em 0 0.2em' },
-  '.hw-line-h2': { fontSize: '1.5em', fontWeight: '700', lineHeight: '1.3', padding: '0.6em 0 0.2em' },
-  '.hw-line-h3': { fontSize: '1.25em', fontWeight: '600', lineHeight: '1.35', padding: '0.5em 0 0.15em' },
-  '.hw-line-h4': { fontSize: '1.1em', fontWeight: '600', padding: '0.4em 0 0.1em' },
-  '.hw-line-h5': { fontSize: '1em', fontWeight: '600', padding: '0.4em 0 0.1em' },
-  '.hw-line-h6': { fontSize: '0.95em', fontWeight: '600', color: 'var(--hw-text-muted)', padding: '0.4em 0 0.1em' },
+  //
+  // ## On block spacing generally
+  //
+  // A Markdown document separates blocks with *blank lines*, and this editor
+  // renders those blank lines — they are real lines the caret can sit on, each
+  // occupying a full line height. So any margin or padding added to a block
+  // lands on top of a gap that already exists, and the two compound: a
+  // paragraph followed by a blank line followed by another paragraph was
+  // getting a blank line *plus* 0.85em of padding, which is why everything
+  // read about half again too loose.
+  //
+  // The rule throughout this file is therefore to let the blank lines do the
+  // separating, and to add space only where a construct needs to be set apart
+  // from its own background box (code) or rule (blockquote).
+  //
+  // Padding here is in the heading's own em, so 0.2em on an h1 at 2em is
+  // 0.4em of body text.
+  '.hw-line-h1': { fontSize: '1.9em', fontWeight: '700', lineHeight: '1.3', padding: '0.25em 0 0' },
+  '.hw-line-h2': { fontSize: '1.45em', fontWeight: '700', lineHeight: '1.3', padding: '0.3em 0 0' },
+  '.hw-line-h3': { fontSize: '1.2em', fontWeight: '600', lineHeight: '1.35', padding: '0.3em 0 0' },
+  '.hw-line-h4': { fontSize: '1.05em', fontWeight: '600', padding: '0.25em 0 0' },
+  '.hw-line-h5': { fontSize: '1em', fontWeight: '600', padding: '0.25em 0 0' },
+  '.hw-line-h6': { fontSize: '0.95em', fontWeight: '600', color: 'var(--hw-text-muted)', padding: '0.25em 0 0' },
   '.hw-line-setext-rule': { color: 'var(--hw-text-faint)' },
 
   // --- Inline -------------------------------------------------------------
@@ -65,11 +83,10 @@ export const documentTheme = EditorView.theme({
   },
 
   // --- Paragraphs ---------------------------------------------------------
-  '.hw-line-paragraph-last': { paddingBottom: '0.85em' },
+  // Deliberately no trailing padding: see the note above the headings.
 
   // --- Lists --------------------------------------------------------------
   '.hw-line-list': { paddingLeft: '1.4em', textIndent: '-1.4em' },
-  '.hw-line-list-last': { paddingBottom: '0.6em' },
   '.hw-bullet': { color: 'var(--hw-text-muted)', fontSize: '1.25em', lineHeight: '1', paddingRight: '0.45em' },
   '.hw-list-mark': { color: 'var(--hw-text-muted)', fontStyle: 'normal' },
   '.hw-checkbox': {
@@ -106,8 +123,8 @@ export const documentTheme = EditorView.theme({
     paddingLeft: '1em',
     color: 'var(--hw-text-muted)',
   },
-  '.hw-line-quote-first': { paddingTop: '0.2em' },
-  '.hw-line-quote-last': { paddingBottom: '0.2em', marginBottom: '0.85em' },
+  '.hw-line-quote-first': { paddingTop: '0.15em' },
+  '.hw-line-quote-last': { paddingBottom: '0.15em' },
 
   // --- Code blocks --------------------------------------------------------
   '.hw-line-code': {
@@ -117,8 +134,10 @@ export const documentTheme = EditorView.theme({
     paddingLeft: '1em',
     paddingRight: '1em',
   },
-  '.hw-line-code-first': { paddingTop: '0.7em', borderRadius: '6px 6px 0 0', marginTop: '0.3em' },
-  '.hw-line-code-last': { paddingBottom: '0.7em', borderRadius: '0 0 6px 6px', marginBottom: '0.85em' },
+  // Code keeps a little breathing room, because its background box needs to
+  // sit clear of the text above and below rather than touching it.
+  '.hw-line-code-first': { paddingTop: '0.6em', borderRadius: '6px 6px 0 0', marginTop: '0.2em' },
+  '.hw-line-code-last': { paddingBottom: '0.6em', borderRadius: '0 0 6px 6px', marginBottom: '0.2em' },
 
   // --- Horizontal rule ----------------------------------------------------
   '.hw-hr': {
@@ -132,7 +151,7 @@ export const documentTheme = EditorView.theme({
   // --- Tables -------------------------------------------------------------
   // A table too wide even after wrapping scrolls rather than spilling over
   // the canvas — rare, but a table with many columns can manage it.
-  '.hw-table-wrap': { padding: '0.4em 0 1em', overflowX: 'auto' },
+  '.hw-table-wrap': { padding: '0.2em 0 0.3em', overflowX: 'auto' },
   '.hw-table': { borderCollapse: 'collapse', width: '100%', fontSize: '0.95em' },
   '.hw-table-cell': {
     border: '1px solid var(--hw-border)',

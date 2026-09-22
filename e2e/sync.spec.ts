@@ -95,9 +95,18 @@ test.describe('D. conflict resolution', () => {
     // Both sides edit the *same* line, which is what makes this a genuine
     // conflict rather than two independent changes the merge could reconcile
     // on its own.
-    await page.locator('.cm-content').getByText('Session brokering').click();
+    //
+    // Reached by keyboard rather than by clicking its text: CodeMirror only
+    // renders the lines in view, so a `getByText` for a line below the fold
+    // waits forever on an element that is not in the DOM. Ctrl/Cmd+End scrolls
+    // to the end, and the document's last line is the blank one after the
+    // final list item.
+    await page.locator('.cm-content').click();
+    await page.keyboard.press('ControlOrMeta+End');
+    await page.keyboard.press('ArrowUp');
     await page.keyboard.press('End');
     await page.keyboard.type(' MINE', { delay: 12 });
+    await expect(page.locator('.cm-content')).toContainText('Session brokering MINE');
 
     await setRemote(page, base.replace('- Session brokering', '- Session brokering THEIRS'));
     await expect(page.locator('.hw-banner')).toContainText('updated elsewhere', { timeout: 10_000 });

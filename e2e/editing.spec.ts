@@ -9,7 +9,7 @@ test.describe('A. open and autosave', () => {
     await openDocument(page);
     await expect(page.locator('.hw-filename')).toHaveText('company.md');
     await expect(page.locator('.hw-status')).toContainText('Saved to Drive');
-    await expect(page.locator('.cm-content')).toContainText('Headwall provides');
+    await expect(page.locator('.cm-content')).toContainText('One platform, four layers');
   });
 
   test('marks the document as editing, then saves it to the same Drive file', async ({ page }) => {
@@ -51,22 +51,22 @@ test.describe('live preview keeps Markdown canonical', () => {
 
     // `**account security**` is rendered bold with its asterisks hidden…
     const strong = page.locator('.hw-strong').first();
-    await expect(strong).toHaveText('account security');
+    await expect(strong).toHaveText('data, identity, models, operations.');
     // …and the heading no longer shows its '#'.
-    await expect(page.locator('.hw-line-h1').first()).toHaveText('Company');
+    await expect(page.locator('.hw-line-h1').first()).toHaveText('Product');
 
     // But the document itself still holds the Markdown, unchanged.
-    expect(await driveContent(page)).toContain('# Company');
-    expect(await driveContent(page)).toContain('**account security**');
+    expect(await driveContent(page)).toContain('# Product');
+    expect(await driveContent(page)).toContain('**data, identity, models, operations.**');
   });
 
   test('source mode shows the same document as raw Markdown', async ({ page }) => {
     await openDocument(page);
     await page.getByRole('button', { name: 'View' }).click();
     await page.getByRole('menuitemradio', { name: 'Source mode' }).click();
-    await expect(page.locator('.cm-content')).toContainText('# Company');
-    await expect(page.locator('.cm-content')).toContainText('**account security**');
+    await expect(page.locator('.cm-content')).toContainText('# Product');
+    await expect(page.locator('.cm-content')).toContainText('**data, identity, models, operations.**');
     // Switching modes must not have changed anything in Drive.
-    expect(await driveContent(page)).toContain('**account security**');
+    expect(await driveContent(page)).toContain('**data, identity, models, operations.**');
   });
 });
