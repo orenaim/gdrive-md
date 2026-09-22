@@ -137,15 +137,11 @@ export const documentTheme = EditorView.theme({
     padding: '0.45em 0.7em',
     textAlign: 'left',
   },
-  // No fill on the header row. A grey band reads as "disabled" rather than
-  // "header" — especially for the common layout where the header cells are
-  // empty and the band is all you see. Weight and a heavier rule under the
-  // row carry the distinction instead.
-  '.hw-table th.hw-table-cell': {
-    fontWeight: '600',
-    borderBottomWidth: '2px',
-    borderBottomColor: 'var(--hw-border-strong)',
-  },
+  // Header cells are distinguished by weight alone — no fill, no heavier
+  // rule. Both read as chrome rather than as structure, and on the common
+  // layout where the header cells are empty they are the only thing visible,
+  // which makes an empty row look like a rendering fault.
+  '.hw-table th.hw-table-cell': { fontWeight: '600' },
   '.hw-image-inline': { maxHeight: '1.4em', verticalAlign: '-0.2em', borderRadius: '2px' },
   '.hw-table-source': { fontFamily: 'var(--hw-font-mono)', fontSize: '0.875em', color: 'var(--hw-text-muted)' },
 
