@@ -14,13 +14,18 @@ import type { RuleSet } from './types';
 export const linkRules: RuleSet = {
   Link: (node, ctx) => {
     const marks = node.node.getChildren('LinkMark');
-    // A reference link (`[label][ref]`) or a malformed one: leave it as source
-    // rather than guessing at a structure this rule does not model.
     if (marks.length < 2) return;
+    const urlNode = node.node.getChild('URL');
+    // A Link with no URL child is a *reference* link — `[label][ref]`,
+    // `[label]`, or something like `[[wikilink]]` that merely looks like one.
+    // Its target lives in a definition this rule does not resolve, so the
+    // source stays visible. Hiding the brackets anyway would render
+    // `[[wikilink]]` as `[wikilink]`: a silent misrepresentation of syntax we
+    // do not support, which is exactly what must not happen.
+    if (!urlNode) return;
     const labelFrom = marks[0].to;
     const labelTo = marks[1].from;
-    const urlNode = node.node.getChild('URL');
-    const href = urlNode ? ctx.state.sliceDoc(urlNode.from, urlNode.to) : '';
+    const href = ctx.state.sliceDoc(urlNode.from, urlNode.to);
 
     ctx.add(
       Decoration.mark({

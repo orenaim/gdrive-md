@@ -8,19 +8,17 @@ import {
   typeAtEnd,
 } from './helpers';
 
-const BASE = `# Company
-
-Headwall provides end-to-end **account security** for the AI era.
-
-## Why now
-
-AI is fundamentally changing who — and what — signs in.
-
-## Roadmap
-
-- Identity graph
-- Session brokering
-`;
+/**
+ * The document as Drive currently holds it.
+ *
+ * Read at runtime rather than duplicated as a literal here: the mock's
+ * content is a fixture that changes as the editor grows features to
+ * demonstrate, and a copy in this file silently goes stale, producing
+ * "remote" edits that are really wholesale rewrites.
+ */
+async function currentBase(page: import('@playwright/test').Page): Promise<string> {
+  return driveContent(page);
+}
 
 /**
  * Scenario B — a remote revision appears while the document is dirty.
@@ -28,10 +26,11 @@ AI is fundamentally changing who — and what — signs in.
 test.describe('B. external change while dirty', () => {
   test('stops autosaving, shows the banner, and leaves local text intact', async ({ page }) => {
     await openDocument(page);
+    const base = await currentBase(page);
     await typeAtEnd(page, '\nLocal work in progress.');
 
     // A second editor changes a different part of the file.
-    await setRemote(page, BASE.replace('- Identity graph', '- Identity graph\n- Key rotation'));
+    await setRemote(page, base.replace('- Identity graph', '- Identity graph\n- Key rotation'));
 
     const banner = page.locator('.hw-banner');
     await expect(banner).toContainText('updated elsewhere', { timeout: 10_000 });
@@ -58,11 +57,12 @@ test.describe('B. external change while dirty', () => {
 test.describe('C. non-conflicting merge', () => {
   test('merges both edits and saves the result', async ({ page }) => {
     await openDocument(page);
+    const base = await currentBase(page);
 
     // Local: append a paragraph at the end.
     await typeAtEnd(page, '\nWritten locally.');
     // Remote: add a bullet in the middle.
-    await setRemote(page, BASE.replace('- Identity graph', '- Identity graph\n- Key rotation'));
+    await setRemote(page, base.replace('- Identity graph', '- Identity graph\n- Key rotation'));
 
     await expect(page.locator('.hw-banner')).toContainText('updated elsewhere', { timeout: 10_000 });
     await page.getByRole('button', { name: 'Merge update' }).click();
@@ -90,6 +90,7 @@ test.describe('C. non-conflicting merge', () => {
 test.describe('D. conflict resolution', () => {
   async function createConflict(page: import('@playwright/test').Page) {
     await openDocument(page);
+    const base = await currentBase(page);
 
     // Both sides edit the *same* line, which is what makes this a genuine
     // conflict rather than two independent changes the merge could reconcile
@@ -98,7 +99,7 @@ test.describe('D. conflict resolution', () => {
     await page.keyboard.press('End');
     await page.keyboard.type(' MINE', { delay: 12 });
 
-    await setRemote(page, BASE.replace('- Session brokering', '- Session brokering THEIRS'));
+    await setRemote(page, base.replace('- Session brokering', '- Session brokering THEIRS'));
     await expect(page.locator('.hw-banner')).toContainText('updated elsewhere', { timeout: 10_000 });
   }
 

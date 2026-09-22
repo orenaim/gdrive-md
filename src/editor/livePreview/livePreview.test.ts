@@ -135,6 +135,15 @@ describe('inline rendering', () => {
     inside.destroy();
   });
 
+  it('leaves a reference-style link showing its brackets', () => {
+    // `[[wikilink]]` parses as a Link node with no URL. Collapsing it to its
+    // label would render it as `[wikilink]` — syntax we do not support,
+    // silently misrepresented.
+    const view = makeView('[[wikilink]] here\n\nother line', 20);
+    expect(hides(view, '[')).toBe(false);
+    view.destroy();
+  });
+
   it('hides the "## " of a heading, including its trailing space', () => {
     const view = makeView('## Product\n\nbody text here', 14);
     expect(hides(view, '## ')).toBe(true);

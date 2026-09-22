@@ -137,7 +137,16 @@ export const documentTheme = EditorView.theme({
     padding: '0.45em 0.7em',
     textAlign: 'left',
   },
-  '.hw-table th.hw-table-cell': { backgroundColor: 'var(--hw-code-bg)', fontWeight: '600' },
+  // No fill on the header row. A grey band reads as "disabled" rather than
+  // "header" — especially for the common layout where the header cells are
+  // empty and the band is all you see. Weight and a heavier rule under the
+  // row carry the distinction instead.
+  '.hw-table th.hw-table-cell': {
+    fontWeight: '600',
+    borderBottomWidth: '2px',
+    borderBottomColor: 'var(--hw-border-strong)',
+  },
+  '.hw-image-inline': { maxHeight: '1.4em', verticalAlign: '-0.2em', borderRadius: '2px' },
   '.hw-table-source': { fontFamily: 'var(--hw-font-mono)', fontSize: '0.875em', color: 'var(--hw-text-muted)' },
 
   // --- Images -------------------------------------------------------------

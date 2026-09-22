@@ -3,6 +3,7 @@ import { StateEffect, StateField, type EditorState, type Range } from '@codemirr
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
 import { blockCursorTouchesRange } from './cursorReveal';
+import { renderInlineMarkdown } from './inlineRender';
 import type { RuleSet } from './types';
 
 export type ColumnAlign = 'left' | 'center' | 'right' | null;
@@ -77,11 +78,16 @@ export function readTableModel(state: EditorState, node: SyntaxNode): TableModel
 /**
  * Renders a table model as real table markup.
  *
- * Cell text is inserted as plain text, deliberately: a cell containing
- * `**bold**` shows its asterisks here rather than being re-parsed. Rendering
- * inline Markdown inside cells would mean the cell's displayed text no longer
- * matches its source, and clicking into it to edit would be jarring. V0 keeps
- * the table structural and leaves inline formatting to the revealed source.
+ * Cell contents go through the inline Markdown renderer, so `**bold**` and
+ * `[label](url)` render as they do everywhere else. An earlier version
+ * inserted cell text verbatim on the theory that a rendered cell should match
+ * its source; that was the wrong call. A table is exactly where inline
+ * formatting carries the most meaning — links to other documents, emphasised
+ * keys — and showing raw asterisks there makes the table harder to read than
+ * the Markdown it came from.
+ *
+ * The caret still reveals the whole table's source for editing; what changed
+ * is only what the *rendered* form looks like.
  */
 export function renderTableElement(model: TableModel): HTMLElement {
   const table = document.createElement('table');
@@ -93,7 +99,7 @@ export function renderTableElement(model: TableModel): HTMLElement {
       const align = model.align[colIndex];
       if (align) cell.style.textAlign = align;
       cell.className = 'hw-table-cell';
-      cell.textContent = text;
+      cell.appendChild(renderInlineMarkdown(text));
       tr.appendChild(cell);
     });
     table.appendChild(tr);
