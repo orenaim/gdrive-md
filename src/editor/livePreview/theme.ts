@@ -130,12 +130,26 @@ export const documentTheme = EditorView.theme({
   '.hw-hr-source': { color: 'var(--hw-text-faint)' },
 
   // --- Tables -------------------------------------------------------------
-  '.hw-table-wrap': { padding: '0.4em 0 1em' },
+  // A table too wide even after wrapping scrolls rather than spilling over
+  // the canvas — rare, but a table with many columns can manage it.
+  '.hw-table-wrap': { padding: '0.4em 0 1em', overflowX: 'auto' },
   '.hw-table': { borderCollapse: 'collapse', width: '100%', fontSize: '0.95em' },
   '.hw-table-cell': {
     border: '1px solid var(--hw-border)',
     padding: '0.45em 0.7em',
     textAlign: 'left',
+    lineHeight: '1.5',
+    // `height` on a table cell behaves as a *minimum*: every row gets at
+    // least this, so an empty header row is the same height as a filled one
+    // instead of collapsing to a thin strip, while a cell whose text wraps is
+    // free to grow.
+    //
+    // Set comfortably above the natural height of one line so the minimum
+    // actually governs. Inline content — a link, a `strong` — makes the line
+    // box a fraction taller than bare text, which at 2.4em left the empty
+    // header row a pixel shorter than its neighbours.
+    height: '2.6em',
+    verticalAlign: 'middle',
   },
   // Header cells are distinguished by weight alone — no fill, no heavier
   // rule. Both read as chrome rather than as structure, and on the common

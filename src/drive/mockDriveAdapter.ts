@@ -57,7 +57,7 @@ AI is fundamentally changing who — and what — signs in.
 |---|---|---|
 | **data** | [data.md](https://example.com/data.md) | Account Security Lakehouse & Live Graph — the foundation |
 | **identity** | [identity.md](https://example.com/identity.md) | Adaptive Identity & Enforcement, and trust tiers |
-|  | [stepup.md](https://example.com/stepup.md) | Which action needs which tier — part of identity |
+|  | [stepup.md](https://example.com/stepup.md) | Which action needs which tier, for which actor — part of identity |
 | **models** | [models.md](https://example.com/models.md) | Account Security Foundation Model |
 `;
 
