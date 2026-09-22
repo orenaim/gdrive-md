@@ -241,7 +241,17 @@ async function toDriveError(response: Response): Promise<DriveError> {
       }
       return new DriveError('permission', message, 403);
     case 404:
-      return new DriveError('notFound', message, 404);
+      // Drive answers 404 rather than 403 for a file the caller may not see,
+      // so as not to confirm it exists. Under the `drive.file` scope that is
+      // the *expected* response for any file the user has not opened with
+      // this app — the grant is created by Drive's "Open with" flow, not by
+      // owning the file — so the raw "File not found" is actively misleading
+      // here. The most common cause by far is a hand-constructed URL.
+      return new DriveError(
+        'notFound',
+        'This file could not be opened. Headwall MD can only open files launched from Drive through "Open with" — it has no access to the rest of your Drive. If you reached this page by pasting a URL, open the file from Drive instead.',
+        404,
+      );
     case 429:
       return new DriveError('rateLimit', message, 429);
     default:
