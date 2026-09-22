@@ -1,0 +1,60 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The minimum the deploy needs: read the code, publish Pages, and mint the
+# OIDC token `deploy-pages` uses. No write access to the repository itself.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A queued deploy supersedes an in-flight one; two deploys racing would leave
+# whichever finished last live, regardless of which commit was newer.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # A failing test blocks the deploy. The suite runs in about a second,
+      # so there is no reason not to gate on it.
+      - run: npm test
+
+      - run: npm run build
+        env:
+          # Repository *variables*, not secrets. Vite inlines these into the
+          # bundle at build time, so they are public by construction — an
+          # OAuth client ID is an identifier, and this app has no client
+          # secret because it has no backend to hold one. Storing them as
+          # secrets would imply a confidentiality that does not exist.
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          VITE_WORKSPACE_DOMAIN: ${{ vars.VITE_WORKSPACE_DOMAIN }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

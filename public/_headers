@@ -1,0 +1,38 @@
+# Cloudflare Pages response headers.
+# Copied verbatim into dist/ by Vite, since everything in public/ is.
+
+/*
+  X-Content-Type-Options: nosniff
+  # Drive opens this app in a new tab, never an iframe, so framing is only
+  # ever someone else's idea.
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+
+# Asset filenames are content-hashed by Vite, so a given URL's bytes never
+# change and it can be cached indefinitely.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The entry point must not be cached, or a deploy leaves people on the old
+# bundle until their cache expires.
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# ---------------------------------------------------------------------------
+# A Content-Security-Policy that fits this app. Left commented out
+# deliberately: enable it once, then verify sign-in still works, because a CSP
+# that is slightly too strict breaks Google Identity Services in ways that are
+# awkward to diagnose from a production deploy.
+#
+# Why each source is needed:
+#   script-src   accounts.google.com  — the GIS client library
+#   connect-src  www.googleapis.com   — every Drive API call
+#   frame-src    accounts.google.com  — the GIS popup/iframe
+#   style-src    'unsafe-inline'      — CodeMirror injects its theme as a
+#                                       <style> element at runtime
+#   img-src      https:               — images referenced from Markdown, which
+#                                       can point anywhere
+#
+# /*
+#   Content-Security-Policy: default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://www.googleapis.com https://accounts.google.com; frame-src https://accounts.google.com; base-uri 'none'; object-src 'none'; form-action 'none'
