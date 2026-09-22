@@ -6,6 +6,22 @@ import { DriveError, type DriveAdapter } from '../drive/driveTypes';
 import { assertInvariants } from './documentReducer';
 import type { SessionState } from './sessionTypes';
 
+/**
+ * `base` with `find` replaced by `replacement`, asserting `find` was there.
+ *
+ * These tests simulate edits by patching the mock's document, and a plain
+ * `String.replace` whose needle has gone silently returns the original — so a
+ * change to the fixture turns "an external edit arrived" into "nothing
+ * happened", and the test fails somewhere far from the cause. Failing here
+ * names the real problem.
+ */
+function edited(base: string, find: string, replacement: string): string {
+  if (!base.includes(find)) {
+    throw new Error(`Fixture no longer contains ${JSON.stringify(find)} — update the test anchor.`);
+  }
+  return base.replace(find, replacement);
+}
+
 const DEBOUNCE = 2_000;
 const MAX_INTERVAL = 5_000;
 const POLL = 3_000;
@@ -145,8 +161,10 @@ describe('DocumentSession', () => {
 
   it('reports CONFLICTED up front when the two versions genuinely clash', async () => {
     const base = (await loaded()).baseText;
-    session.edit(base.replace('Headwall provides', 'Headwall delivers'));
-    window.__mockDrive!.setRemoteContent(base.replace('Headwall provides', 'Headwall offers'));
+    session.edit(edited(base, 'One platform, four layers', 'One platform, four tiers'));
+    window.__mockDrive!.setRemoteContent(
+      edited(base, 'One platform, four layers', 'One platform, four planes'),
+    );
 
     await advance(POLL + 100);
 
@@ -161,7 +179,7 @@ describe('DocumentSession', () => {
     const local = base + '\nLocal work in progress.\n';
     session.edit(local);
     window.__mockDrive!.setRemoteContent(
-      base.replace('## Roadmap', '## Roadmap\n\nRewritten remotely.'),
+      edited(base, '## Shape', '## Shape\n\nRewritten remotely.'),
     );
 
     await advance(POLL + 100);
@@ -202,8 +220,8 @@ describe('DocumentSession', () => {
     const base = session.getState().baseText;
 
     // Non-overlapping edits: local changes the first paragraph, remote the list.
-    const local = base.replace('end-to-end', 'end to end');
-    const remote = base.replace('- Session brokering', '- Session brokering\n- Token vaulting');
+    const local = edited(base, 'One platform, four layers', 'One platform, four tiers');
+    const remote = edited(base, '- Session brokering', '- Session brokering\n- Token vaulting');
     session.edit(local);
     window.__mockDrive!.setRemoteContent(remote);
 
@@ -214,7 +232,7 @@ describe('DocumentSession', () => {
     expect(result.conflicts).toBe(false);
 
     const merged = session.getState().localText;
-    expect(merged).toContain('end to end'); // local edit survived
+    expect(merged).toContain('four tiers'); // local edit survived
     expect(merged).toContain('Token vaulting'); // remote edit survived
 
     const state = session.getState();
@@ -231,8 +249,10 @@ describe('DocumentSession', () => {
   it('holds a conflicted merge for review and saves nothing until resolved', async () => {
     await loaded();
     const base = session.getState().baseText;
-    session.edit(base.replace('Headwall provides', 'Headwall delivers'));
-    window.__mockDrive!.setRemoteContent(base.replace('Headwall provides', 'Headwall offers'));
+    session.edit(edited(base, 'One platform, four layers', 'One platform, four tiers'));
+    window.__mockDrive!.setRemoteContent(
+      edited(base, 'One platform, four layers', 'One platform, four planes'),
+    );
 
     await advance(POLL + 100);
     const state = session.getState();
@@ -249,7 +269,7 @@ describe('DocumentSession', () => {
     expect(window.__mockDrive!.getSaveCount()).toBe(saves);
 
     // Resolving commits and resumes autosave.
-    const resolved = base.replace('Headwall provides', 'Headwall delivers');
+    const resolved = edited(base, 'One platform, four layers', 'One platform, four tiers');
     session.applyMerge(resolved);
     expect(session.getState().status).toBe('DIRTY');
     await advance(DEBOUNCE + 500);
@@ -361,7 +381,7 @@ describe('local draft recovery', () => {
 
     // Offered, not applied: the Drive content is what is showing.
     expect(session.getPendingDraft()?.localText).toBe('unsaved work from the previous session');
-    expect(session.getState().localText).toContain('Headwall provides');
+    expect(session.getState().localText).toContain('One platform, four layers');
     expect(session.getState().status).toBe('CLEAN');
 
     session.recoverDraft();
