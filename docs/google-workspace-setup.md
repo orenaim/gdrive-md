@@ -58,8 +58,11 @@ give the app far more access than it needs.
    verification requirement entirely.
 2. App name: `Headwall Markdown`
 3. User support email: a monitored Headwall address.
-4. App domain / home page: `https://md.headwall.ai`
-5. Authorised domain: `headwall.ai`
+4. App domain / home page: **leave blank.** The app is served from
+   `github.io`, which is on the Public Suffix List, so Google will not accept
+   it as an authorised domain — and for an Internal app these fields are not
+   required.
+5. Authorised domain: leave blank, for the same reason.
 6. Developer contact: a monitored Headwall address.
 7. **Scopes** — add exactly:
    - `https://www.googleapis.com/auth/drive.file`
@@ -75,8 +78,9 @@ give the app far more access than it needs.
 - Application type: **Web application**
 - Name: `Headwall MD web`
 - **Authorised JavaScript origins** — these must match exactly, including
-  scheme and port. No trailing slash.
-  - `https://md.headwall.ai`
+  scheme and port. **No path and no trailing slash** — an origin is scheme plus
+  host only, and Google rejects anything more.
+  - `https://orenaim.github.io`
   - `http://localhost:5173` (development)
 - **Authorised redirect URIs** — leave empty. The app uses the Google Identity
   Services token flow, which does not redirect.
@@ -90,7 +94,7 @@ variable would publish it in the bundle.
 
 ## 5. Drive UI integration — the "Open with" entry
 
-> **Deploy first.** This step needs a live HTTPS domain (see step 8); Drive
+> **Deploy first.** This step needs a live HTTPS URL (see step 8); Drive
 > rejects `localhost` as an Open URL. If the app is not deployed yet, do step 8
 > before this one.
 
@@ -106,8 +110,11 @@ variable would publish it in the bundle.
 ### Open URL
 
 ```
-https://md.headwall.ai
+https://orenaim.github.io/gdrive-md/
 ```
+
+Note the trailing slash, and note that unlike the JavaScript origin above this
+field **does** take a path.
 
 > **The Open URL must be a fully qualified domain name. `localhost` is
 > rejected.** This is the practical blocker for testing: the Drive "Open with"
@@ -231,9 +238,8 @@ double-click anyway, because it is the only registered handler.
 ## 8. Deploying
 
 **See [deploy-github-pages.md](./deploy-github-pages.md)** for the full
-walkthrough, including attaching `md.headwall.ai` and the Cloudflare
-proxy setting that breaks certificate issuance.
-([deploy-cloudflare.md](./deploy-cloudflare.md) documents the alternative.)
+walkthrough. ([deploy-cloudflare.md](./deploy-cloudflare.md) documents the
+alternative host, which can set response headers where GitHub Pages cannot.)
 
 The app is a static bundle — no server, no backend.
 
@@ -242,14 +248,15 @@ npm ci
 npm run build          # emits dist/
 ```
 
-Serve `dist/` from any static host at `https://md.headwall.ai`, with:
+Serve `dist/` from any static host, with:
 
 - **HTTPS required.** Google Identity Services refuses to run over plain HTTP
   on a non-localhost origin.
-- **SPA fallback.** Drive launches the app at `/?state=…`, so a plain static
-  host works, but make sure unknown paths fall back to `index.html` rather
-  than 404ing.
+- **No SPA fallback needed.** The app has no client-side router; Drive
+  launches it at `…/?state=…`, which is the base path with a query string.
 - The origin must exactly match an Authorised JavaScript origin from step 4.
+- If the host serves from a subpath, `base` in `vite.config.ts` must suit it.
+  It is `'./'`, which works anywhere.
 
 Set `VITE_GOOGLE_CLIENT_ID` and `VITE_WORKSPACE_DOMAIN` in the build
 environment. They are baked in at build time, so a change to either needs a

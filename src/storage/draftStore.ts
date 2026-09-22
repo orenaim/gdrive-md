@@ -21,7 +21,7 @@ export interface Draft {
   savedAt: number;
 }
 
-const DB_NAME = 'headwall-md';
+const DB_NAME = 'gdrive-md';
 const DB_VERSION = 1;
 const STORE = 'drafts';
 

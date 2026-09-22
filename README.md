@@ -1,4 +1,4 @@
-# Headwall MD
+# gdrive-md
 
 An Obsidian-style live-preview editor for Markdown files stored in Google
 Drive.
@@ -150,13 +150,16 @@ that must be resolved before anything is written.
 
 ## Deployment
 
-Served from GitHub Pages at `https://md.headwall.ai` — see
+Served from GitHub Pages at **`https://orenaim.github.io/gdrive-md/`** — see
 **[docs/deploy-github-pages.md](docs/deploy-github-pages.md)**. A push to
 `main` runs the tests and publishes `dist/`.
 
+Because Pages serves from a repository subpath, `vite.config.ts` sets
+`base: './'`. With the default `'/'`, the HTML loads and every asset 404s.
+
 Note that the Drive "Open with" integration cannot be configured or tested
-until the app is live on a real domain: Drive rejects `localhost` as an Open
-URL. Everything else is testable locally against `?mock=1`.
+until the app is live on a public HTTPS URL: Drive rejects `localhost` as an
+Open URL. Everything else is testable locally against `?mock=1`.
 
 ## Google setup
 

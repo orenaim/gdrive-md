@@ -1,5 +1,5 @@
 {
-  "name": "headwall-md",
+  "name": "gdrive-md",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -12,8 +12,8 @@
     "e2e": "playwright test",
     "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false",
     "cf:login": "wrangler login",
-    "cf:create": "wrangler pages project create headwall-md --production-branch=main",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name=headwall-md"
+    "cf:create": "wrangler pages project create gdrive-md --production-branch=main",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=gdrive-md"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

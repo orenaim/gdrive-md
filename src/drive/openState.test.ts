@@ -77,13 +77,13 @@ describe('parseDriveOpenState', () => {
 
 describe('readOpenStateFromUrl', () => {
   it('reads and decodes the state query parameter', () => {
-    const url = `https://md.headwall.ai/?state=${encodeURIComponent(state())}`;
+    const url = `https://orenaim.github.io/gdrive-md/?state=${encodeURIComponent(state())}`;
     const result = readOpenStateFromUrl(url);
     expect(result.ok && result.state.fileId).toBe(FILE_ID);
   });
 
   it('fails cleanly when launched without a state parameter', () => {
-    const result = readOpenStateFromUrl('https://md.headwall.ai/');
+    const result = readOpenStateFromUrl('https://orenaim.github.io/gdrive-md/');
     expect(result.ok).toBe(false);
   });
 });
