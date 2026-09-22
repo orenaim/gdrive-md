@@ -1,226 +1,341 @@
 import { GOOGLE_SCOPES, config } from '../config';
 
 /**
- * Google Identity Services, wrapped.
+ * Google OAuth via a top-level redirect.
  *
- * This app uses the *token* flow rather than the code flow: there is no
- * backend, so there is nowhere to keep a client secret or a refresh token, and
- * asking for one would mean building a server this V0 does not need. The
- * consequence is that access tokens are short-lived (about an hour) and
- * renewing one means a silent round-trip through Google. `getAccessToken`
- * below hides that: callers ask for a token and get a valid one.
+ * ## Why not Google Identity Services
+ *
+ * GIS implements the token flow with a **popup window**, and has no
+ * hidden-iframe variant (unlike the `gapi` client it replaced). Drive launches
+ * this app into a fresh tab whose document carries no user activation of its
+ * own — the click happened on the Drive page, and transient activation does
+ * not cross documents — so the popup is blocked on every single launch. The
+ * user then has to click a button purely to supply activation, which for an
+ * app whose entire job is "open this file" is most of the interaction.
+ *
+ * Navigating the top-level window has no such requirement. When the account
+ * already holds a grant, Google bounces straight back with a token and the
+ * user sees a flicker rather than a dialog.
+ *
+ * ## The trade
+ *
+ * A redirect cannot be used to *refresh* a token mid-edit — navigating away
+ * from a half-written sentence is worse than any dialog. Renewal therefore
+ * goes through a hidden iframe (`renewSilently`), and when that fails the
+ * caller is told interaction is required so it can offer a reconnect action
+ * rather than hijacking the page.
  */
 
-interface TokenResponse {
-  access_token?: string;
-  expires_in?: number;
-  error?: string;
-  error_description?: string;
-}
+const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 
-interface TokenClient {
-  requestAccessToken(overrides?: { prompt?: string; hint?: string }): void;
-  callback: (response: TokenResponse) => void;
-  error_callback?: (error: { type?: string; message?: string }) => void;
-}
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        oauth2: {
-          initTokenClient(options: {
-            client_id: string;
-            scope: string;
-            hint?: string;
-            hd?: string;
-            prompt?: string;
-            callback: (response: TokenResponse) => void;
-            error_callback?: (error: { type?: string; message?: string }) => void;
-          }): TokenClient;
-          revoke(token: string, done?: () => void): void;
-        };
-      };
-    };
-  }
-}
-
-const GIS_SRC = 'https://accounts.google.com/gsi/client';
-
-/**
- * Renew this many milliseconds before the token actually expires.
- *
- * A save that starts with four seconds of validity left and takes five to
- * upload fails with a 401 for no good reason, so the margin is generous
- * relative to a realistic request.
- */
+/** Renew this long before actual expiry, so an in-flight save cannot straddle it. */
 const RENEW_MARGIN_MS = 5 * 60 * 1000;
+
+/** A silent iframe renewal that has not resolved by now is not going to. */
+const IFRAME_TIMEOUT_MS = 8_000;
+
+const SS_NONCE = 'hw.auth.nonce';
+const SS_DRIVE_STATE = 'hw.drive.state';
+const SS_ATTEMPTED = 'hw.auth.attempted';
 
 export class AuthError extends Error {
   constructor(
     message: string,
-    /** True when the user dismissed the consent popup rather than failing. */
-    readonly userCancelled = false,
+    /** True when only a user gesture can make progress. */
+    readonly needsInteraction = false,
   ) {
     super(message);
     this.name = 'AuthError';
   }
 }
 
-let gisPromise: Promise<void> | null = null;
-
-function loadGis(): Promise<void> {
-  if (gisPromise) return gisPromise;
-  gisPromise = new Promise((resolve, reject) => {
-    if (window.google?.accounts?.oauth2) return resolve();
-    const script = document.createElement('script');
-    script.src = GIS_SRC;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new AuthError('Could not load Google sign-in.'));
-    document.head.appendChild(script);
-  });
-  return gisPromise;
-}
-
 export interface GoogleUser {
-  /** Drive's own identifier for the account — comparable with `state.userId`. */
   permissionId: string;
   emailAddress: string;
   displayName: string;
 }
 
+/** What `consumeRedirectResult` found in the URL when the app started. */
+export type RedirectResult =
+  | { kind: 'none' }
+  | { kind: 'token'; accessToken: string; expiresAt: number; driveState: string | null }
+  | { kind: 'error'; error: string; needsInteraction: boolean; driveState: string | null };
+
+function session(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    // Storage can throw outright under strict privacy settings.
+    return null;
+  }
+}
+
+function randomNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * The exact string registered as an Authorised redirect URI.
+ *
+ * Google requires a byte-for-byte match, and notably the redirect URI may not
+ * carry a query string — which is why Drive's `state` parameter is stashed in
+ * sessionStorage across the round trip rather than simply riding along.
+ */
+export function redirectUri(): string {
+  const { origin, pathname } = window.location;
+  // Drop any filename, keep the directory, guarantee one trailing slash.
+  const dir = pathname.endsWith('/') ? pathname : pathname.replace(/[^/]*$/, '');
+  return `${origin}${dir}`;
+}
+
+function parseFragment(hash: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of new URLSearchParams(hash.replace(/^#/, ''))) out[key] = value;
+  return out;
+}
+
+/**
+ * Google's answer to a `prompt=none` request when it cannot proceed silently.
+ * Any of these means "ask the user"; anything else is a real failure.
+ */
+const INTERACTION_ERRORS = new Set([
+  'interaction_required',
+  'login_required',
+  'consent_required',
+  'account_selection_required',
+]);
+
+function buildAuthUrl(options: {
+  prompt: 'none' | 'select_account' | '';
+  nonce: string;
+  loginHint?: string;
+}): string {
+  const params = new URLSearchParams({
+    client_id: config.googleClientId,
+    redirect_uri: redirectUri(),
+    response_type: 'token',
+    scope: GOOGLE_SCOPES,
+    include_granted_scopes: 'true',
+    state: options.nonce,
+  });
+  if (options.prompt) params.set('prompt', options.prompt);
+  if (options.loginHint) params.set('login_hint', options.loginHint);
+  if (config.workspaceDomain) params.set('hd', config.workspaceDomain);
+  return `${AUTH_ENDPOINT}?${params}`;
+}
+
+/**
+ * Reads an OAuth response out of the URL fragment, if this load is a return
+ * from Google. Call once, before anything else looks at the URL.
+ *
+ * Always strips the fragment, so an access token never lingers in the address
+ * bar, in `history`, or in a URL the user might copy.
+ */
+export function consumeRedirectResult(): RedirectResult {
+  const store = session();
+  const hash = window.location.hash;
+  if (!hash || (!hash.includes('access_token') && !hash.includes('error'))) {
+    return { kind: 'none' };
+  }
+
+  const fragment = parseFragment(hash);
+  const driveState = store?.getItem(SS_DRIVE_STATE) ?? null;
+
+  // Put the URL back the way Drive sent it: the Drive state as a query
+  // parameter, no fragment. That keeps the address bar honest and makes a
+  // plain reload work, while getting the token out of it immediately.
+  const restored = driveState
+    ? `${window.location.pathname}?state=${encodeURIComponent(driveState)}`
+    : window.location.pathname;
+  window.history.replaceState(null, '', restored);
+
+  const expectedNonce = store?.getItem(SS_NONCE);
+  store?.removeItem(SS_NONCE);
+  if (!expectedNonce || fragment.state !== expectedNonce) {
+    // The response does not correspond to a request this tab made. Treat it
+    // as hostile and demand a deliberate, user-initiated sign-in.
+    return {
+      kind: 'error',
+      error: 'The sign-in response did not match this session.',
+      needsInteraction: true,
+      driveState,
+    };
+  }
+
+  if (fragment.error) {
+    return {
+      kind: 'error',
+      error: fragment.error,
+      needsInteraction: INTERACTION_ERRORS.has(fragment.error),
+      driveState,
+    };
+  }
+
+  if (!fragment.access_token) {
+    return { kind: 'error', error: 'No access token was returned.', needsInteraction: true, driveState };
+  }
+
+  store?.removeItem(SS_ATTEMPTED);
+  return {
+    kind: 'token',
+    accessToken: fragment.access_token,
+    expiresAt: Date.now() + Number(fragment.expires_in ?? 3600) * 1000,
+    driveState,
+  };
+}
+
+/** Whether a silent redirect has already been tried in this tab. */
+export function silentAttemptMade(): boolean {
+  return session()?.getItem(SS_ATTEMPTED) === '1';
+}
+
 export class GoogleAuth {
   private accessToken: string | null = null;
   private expiresAt = 0;
-  private client: TokenClient | null = null;
-  private pending: Promise<string> | null = null;
+  private renewal: Promise<string> | null = null;
 
-  /**
-   * The account Drive says launched us, passed to Google as a login hint.
-   *
-   * The hint is the reliable half of the multi-account story: it tells Google
-   * which of several signed-in accounts to use, so a user with a personal and
-   * a work account lands on the right one without being asked.
-   */
-  constructor(private readonly hint?: string) {}
+  constructor(private readonly loginHint?: string) {}
 
-  /** A valid access token, renewing silently when the current one is stale. */
-  async getAccessToken(): Promise<string> {
-    if (this.accessToken && Date.now() < this.expiresAt - RENEW_MARGIN_MS) {
-      return this.accessToken;
-    }
-    // Collapse concurrent callers onto one request: a poll and a save landing
-    // together must not open two consent popups.
-    if (this.pending) return this.pending;
-    // Attempt the non-interactive path first: `prompt: ''` asks Google to skip
-    // the consent screen when this client already holds a grant.
-    //
-    // Be clear about what this does and does not avoid. GIS's token client
-    // always opens a *popup window* — there is no hidden-iframe mode for the
-    // OAuth token flow, unlike the older gapi client. `prompt: ''` removes the
-    // consent screen, not the popup. And Drive launches this app into a fresh
-    // tab whose document has no user activation of its own (the click happened
-    // on the Drive page, and transient activation does not cross documents), so
-    // the popup is blocked essentially every time on first load.
-    //
-    // That is why this path is still worth taking: when it is blocked, GIS
-    // reports `popup_failed_to_open`, the caller shows the sign-in screen, and
-    // the button press supplies the activation the popup needs. Once a token is
-    // held, later refreshes happen while the user is actively editing, where a
-    // popup opens and closes without them noticing.
-    //
-    // Making the *first* open seamless would need the redirect flow instead of
-    // the popup flow — see docs/google-workspace-setup.md.
-    this.pending = this.requestToken({ silent: true }).finally(() => {
-      this.pending = null;
-    });
-    return this.pending;
+  setToken(accessToken: string, expiresAt: number): void {
+    this.accessToken = accessToken;
+    this.expiresAt = expiresAt;
   }
 
-  /**
-   * Sign-in driven by a real button press.
-   *
-   * The only thing this changes versus `getAccessToken` is that it is invoked
-   * from a user gesture, which is what lets the popup open at all. It still
-   * asks Google to complete without UI where it can, so an account that has
-   * already granted access sees a window flash rather than a consent screen.
-   */
-  async signIn(options: { forceAccountChooser?: boolean } = {}): Promise<string> {
-    this.accessToken = null;
-    this.expiresAt = 0;
-    return this.requestToken({
-      silent: false,
-      ...(options.forceAccountChooser ? { prompt: 'select_account' } : {}),
-    });
-  }
-
-  /** Discards the cached token so the next call re-authenticates. */
   invalidate(): void {
     this.accessToken = null;
     this.expiresAt = 0;
   }
 
-  private async requestToken(options: { silent: boolean; prompt?: string }): Promise<string> {
+  get hasToken(): boolean {
+    return this.accessToken !== null && Date.now() < this.expiresAt;
+  }
+
+  /**
+   * Navigates away to Google. Does not return.
+   *
+   * `driveState` is stashed first, because the redirect URI cannot carry a
+   * query string and Drive's launch parameter would otherwise be lost.
+   */
+  redirectToGoogle(options: { interactive: boolean; driveState: string | null }): void {
     if (!config.googleClientId) {
       throw new AuthError(
         'No Google client ID is configured. Set VITE_GOOGLE_CLIENT_ID (see docs/google-workspace-setup.md).',
       );
     }
-    await loadGis();
-    const oauth2 = window.google?.accounts.oauth2;
-    if (!oauth2) throw new AuthError('Google sign-in did not initialise.');
+    const store = session();
+    const nonce = randomNonce();
+    store?.setItem(SS_NONCE, nonce);
+    if (options.driveState) store?.setItem(SS_DRIVE_STATE, options.driveState);
+    if (!options.interactive) store?.setItem(SS_ATTEMPTED, '1');
 
+    window.location.assign(
+      buildAuthUrl({
+        // Silent first. Interactive only once silent has been refused, so a
+        // user who is already signed in never sees anything.
+        prompt: options.interactive ? '' : 'none',
+        nonce,
+        ...(this.loginHint ? { loginHint: this.loginHint } : {}),
+      }),
+    );
+  }
+
+  /**
+   * A valid token, renewing through a hidden iframe if the current one is
+   * close to expiry.
+   *
+   * Throws an `AuthError` with `needsInteraction` when renewal cannot be done
+   * silently, so the caller can offer a reconnect affordance instead of
+   * navigating away from an edit in progress.
+   */
+  async getAccessToken(): Promise<string> {
+    if (this.accessToken && Date.now() < this.expiresAt - RENEW_MARGIN_MS) {
+      return this.accessToken;
+    }
+    // Collapse concurrent callers: a poll and a save landing together must not
+    // start two renewals.
+    if (this.renewal) return this.renewal;
+    this.renewal = this.renewSilently().finally(() => {
+      this.renewal = null;
+    });
+    return this.renewal;
+  }
+
+  /**
+   * Silent renewal in a hidden iframe.
+   *
+   * The iframe navigates to Google and then back to our own redirect URI, at
+   * which point it is same-origin and its fragment can be read directly. This
+   * is the long-standing OIDC "silent renew" technique.
+   *
+   * It depends on Google's cookies being available in a third-party frame, so
+   * it fails under strict cookie policies. That is expected and handled: the
+   * failure surfaces as `needsInteraction`, and the UI offers to reconnect.
+   */
+  private renewSilently(): Promise<string> {
     return new Promise<string>((resolve, reject) => {
-      const client =
-        this.client ??
-        oauth2.initTokenClient({
-          client_id: config.googleClientId,
-          scope: GOOGLE_SCOPES,
-          ...(this.hint ? { hint: this.hint } : {}),
-          ...(config.workspaceDomain ? { hd: config.workspaceDomain } : {}),
-          callback: () => {},
-        });
-      this.client = client;
+      const store = session();
+      const nonce = randomNonce();
+      store?.setItem(SS_NONCE, nonce);
 
-      client.callback = (response) => {
-        if (response.error || !response.access_token) {
-          reject(
-            new AuthError(
-              response.error_description ?? response.error ?? 'Google sign-in failed.',
-              response.error === 'access_denied',
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.style.display = 'none';
+
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        iframe.remove();
+        store?.removeItem(SS_NONCE);
+        fn();
+      };
+
+      const timer = setTimeout(
+        () => finish(() => reject(new AuthError('Silent sign-in timed out.', true))),
+        IFRAME_TIMEOUT_MS,
+      );
+
+      iframe.addEventListener('load', () => {
+        let href: string | undefined;
+        try {
+          // Throws while the frame is still on accounts.google.com. Once it
+          // has come back to our origin this succeeds.
+          href = iframe.contentWindow?.location.href;
+        } catch {
+          return; // still cross-origin; wait for the next navigation
+        }
+        if (!href || !href.startsWith(redirectUri())) return;
+
+        const fragment = parseFragment(new URL(href).hash);
+        if (fragment.state !== nonce) {
+          finish(() => reject(new AuthError('Sign-in response did not match this session.', true)));
+          return;
+        }
+        if (fragment.error || !fragment.access_token) {
+          finish(() =>
+            reject(
+              new AuthError(
+                fragment.error ?? 'Silent sign-in failed.',
+                fragment.error ? INTERACTION_ERRORS.has(fragment.error) : true,
+              ),
             ),
           );
           return;
         }
-        this.accessToken = response.access_token;
-        // `expires_in` is seconds. Default conservatively if Google omits it.
-        this.expiresAt = Date.now() + (response.expires_in ?? 3600) * 1000;
-        resolve(response.access_token);
-      };
-      client.error_callback = (error) => {
-        reject(
-          new AuthError(
-            error.message ?? 'Google sign-in was dismissed.',
-            error.type === 'popup_closed' || error.type === 'popup_failed_to_open',
-          ),
-        );
-      };
-
-      client.requestAccessToken({
-        // An empty prompt lets Google complete without showing anything when
-        // the account already holds a grant — which, after the first
-        // authorisation, is every single launch.
-        //
-        // This must not default to 'consent'. That value does not mean "ask
-        // if needed"; it means "re-ask unconditionally", so it put the full
-        // consent screen in front of the user on every open even though
-        // nothing about the grant had changed. Only an explicit request for
-        // the account chooser overrides it.
-        prompt: options.prompt ?? '',
-        ...(this.hint ? { hint: this.hint } : {}),
+        const token = fragment.access_token;
+        this.setToken(token, Date.now() + Number(fragment.expires_in ?? 3600) * 1000);
+        finish(() => resolve(token));
       });
+
+      iframe.src = buildAuthUrl({
+        prompt: 'none',
+        nonce,
+        ...(this.loginHint ? { loginHint: this.loginHint } : {}),
+      });
+      document.body.appendChild(iframe);
     });
   }
 }
@@ -228,9 +343,8 @@ export class GoogleAuth {
 /**
  * Who Drive thinks we are.
  *
- * `about.get` is available under the `drive.file` scope and needs no extra
- * identity scope, so this costs nothing beyond one request. `permissionId` is
- * the value comparable with the `userId` Drive puts in the Open URL.
+ * `about.get` works under the `drive.file` scope, so this needs no extra
+ * identity scope.
  */
 export async function fetchDriveUser(accessToken: string): Promise<GoogleUser> {
   const response = await fetch(

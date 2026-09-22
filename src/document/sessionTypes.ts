@@ -24,6 +24,13 @@ export interface SessionError {
   message: string;
   /** Whether trying the same operation again could plausibly work. */
   retryable: boolean;
+  /**
+   * The token has gone and could not be renewed without the user.
+   *
+   * Distinguished from an ordinary failure because retrying is useless — the
+   * UI has to offer a way back to Google instead.
+   */
+  needsReauth?: boolean;
 }
 
 /**

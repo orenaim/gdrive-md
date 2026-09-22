@@ -161,6 +161,31 @@ Note that the Drive "Open with" integration cannot be configured or tested
 until the app is live on a public HTTPS URL: Drive rejects `localhost` as an
 Open URL. Everything else is testable locally against `?mock=1`.
 
+## Authentication
+
+Launching from Drive is a **top-level OAuth redirect**, not a popup.
+
+This is not a stylistic choice. Google Identity Services implements the token
+flow with a popup and has no hidden-iframe variant, and Drive opens the app in
+a fresh tab carrying no user activation of its own — so the popup is blocked
+on every launch, and the user has to click a button purely to supply
+activation. For an app whose entire job is "open this file", that click was
+most of the interaction.
+
+A redirect has no activation requirement. A signed-in user with an existing
+grant sees a flicker and lands in their document.
+
+Two consequences worth knowing:
+
+- **Authorised redirect URIs must be registered exactly**, trailing slash
+  included. A redirect URI may not carry a query string, which is why Drive's
+  `state` parameter is stashed in `sessionStorage` across the round trip.
+- **Renewal cannot use a redirect** — navigating away from a half-written
+  sentence is worse than any dialog. Tokens are renewed in a hidden iframe,
+  and when that fails (strict third-party cookie policies) saving pauses and a
+  Reconnect button appears. Unsaved text is checkpointed to IndexedDB
+  throughout.
+
 ## Google setup
 
 See **[docs/google-workspace-setup.md](docs/google-workspace-setup.md)**.

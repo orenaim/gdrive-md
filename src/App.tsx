@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { config } from './config';
-import { AuthError, GoogleAuth, fetchDriveUser, type GoogleUser } from './auth/googleAuth';
+import {
+  AuthError,
+  GoogleAuth,
+  consumeRedirectResult,
+  fetchDriveUser,
+  silentAttemptMade,
+  type GoogleUser,
+} from './auth/googleAuth';
 import { GoogleDriveAdapter } from './drive/googleDriveAdapter';
 import { getMockDriveAdapter } from './drive/mockDriveAdapter';
 import type { DriveAdapter } from './drive/driveTypes';
@@ -57,15 +64,10 @@ export function App() {
   );
 
   // --- Launch: parse Drive's hand-off, then authenticate ------------------
-  const startAuth = useCallback(
-    async (open: DriveOpenState, interactive: boolean, forceChooser = false) => {
-      const auth = authRef.current ?? new GoogleAuth(open.userId);
-      authRef.current = auth;
+  /** Identifies the account and moves to READY, or to a blocking screen. */
+  const finishAuth = useCallback(
+    async (auth: GoogleAuth, open: DriveOpenState, token: string) => {
       try {
-        const token = interactive
-          ? await auth.signIn({ forceAccountChooser: forceChooser })
-          : await auth.getAccessToken();
-
         let user: GoogleUser;
         try {
           user = await fetchDriveUser(token);
@@ -112,14 +114,34 @@ export function App() {
       } catch (error) {
         setBoot({
           phase: 'needs-signin',
-          message: error instanceof AuthError && !error.userCancelled ? error.message : undefined,
+          message: error instanceof AuthError ? error.message : undefined,
         });
       }
     },
     [],
   );
 
+  /** Hands the page over to Google. Does not return. */
+  const beginRedirect = useCallback((open: DriveOpenState, interactive: boolean) => {
+    const auth = authRef.current ?? new GoogleAuth(open.userId);
+    authRef.current = auth;
+    try {
+      auth.redirectToGoogle({
+        interactive,
+        driveState: new URL(window.location.href).searchParams.get('state'),
+      });
+    } catch (error) {
+      setBoot({
+        phase: 'needs-signin',
+        message: error instanceof AuthError ? error.message : undefined,
+      });
+    }
+  }, []);
+
   useEffect(() => {
+    // Must run before anything else reads the URL: it strips the OAuth
+    // fragment and puts Drive's `state` back as a query parameter.
+    const returned = isMock ? ({ kind: 'none' } as const) : consumeRedirectResult();
     const hasState = new URL(window.location.href).searchParams.has('state');
 
     // Mock mode still goes through the real launch parsing when a `state` is
@@ -154,8 +176,37 @@ export function App() {
       setBoot({ phase: 'bad-launch', reason: parsed.reason });
       return;
     }
-    void startAuth(parsed.state, false);
-  }, [isMock, startAuth]);
+    const open = parsed.state;
+
+    // Coming back from Google with a token: the common case, and the one the
+    // whole redirect flow exists to make invisible.
+    if (returned.kind === 'token') {
+      const auth = new GoogleAuth(open.userId);
+      auth.setToken(returned.accessToken, returned.expiresAt);
+      authRef.current = auth;
+      void finishAuth(auth, open, returned.accessToken);
+      return;
+    }
+
+    // Google refused to proceed without the user. Ask, rather than bouncing
+    // them through a redirect that will refuse again.
+    if (returned.kind === 'error') {
+      setBoot({
+        phase: 'needs-signin',
+        ...(returned.needsInteraction ? {} : { message: returned.error }),
+      });
+      return;
+    }
+
+    // A fresh launch. Try silently — a signed-in user with an existing grant
+    // never sees Google at all. The attempt is recorded so that a silent
+    // refusal cannot put us in a redirect loop.
+    if (!silentAttemptMade()) {
+      beginRedirect(open, false);
+      return;
+    }
+    setBoot({ phase: 'needs-signin' });
+  }, [isMock, finishAuth, beginRedirect]);
 
   // --- The document session ----------------------------------------------
   const sessionOptions = useMemo<DocumentSessionOptions | null>(() => {
@@ -263,7 +314,7 @@ export function App() {
           action={
             <button
               className="hw-btn hw-btn-primary"
-              onClick={() => parsed.ok && void startAuth(parsed.state, true)}
+              onClick={() => parsed.ok && beginRedirect(parsed.state, true)}
             >
               Continue with Google
             </button>
@@ -288,7 +339,7 @@ export function App() {
           action={
             <button
               className="hw-btn hw-btn-primary"
-              onClick={() => parsed.ok && void startAuth(parsed.state, true, true)}
+              onClick={() => parsed.ok && beginRedirect(parsed.state, true)}
             >
               Switch account
             </button>
@@ -357,7 +408,26 @@ export function App() {
         <MergedBanner onDismiss={() => session.clearMergedFlag()} />
       ) : null}
 
-      {state.error && !state.error.retryable ? (
+      {state.error?.needsReauth ? (
+        <div className="hw-banner hw-banner-error" role="alert">
+          <span className="hw-banner-icon" aria-hidden="true">
+            ⚠
+          </span>
+          <span className="hw-banner-text">
+            Your Google session expired, so saving is paused.
+            <span className="hw-banner-detail">
+              Your edits are checkpointed in this browser and will be offered back when you
+              return.
+            </span>
+          </span>
+          <button
+            className="hw-btn hw-btn-primary"
+            onClick={() => beginRedirect(boot.open, true)}
+          >
+            Reconnect
+          </button>
+        </div>
+      ) : state.error && !state.error.retryable ? (
         <div className="hw-banner hw-banner-error" role="alert">
           <span className="hw-banner-icon" aria-hidden="true">
             ⚠

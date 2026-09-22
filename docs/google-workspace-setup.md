@@ -82,8 +82,19 @@ give the app far more access than it needs.
   host only, and Google rejects anything more.
   - `https://orenaim.github.io`
   - `http://localhost:5173` (development)
-- **Authorised redirect URIs** — leave empty. The app uses the Google Identity
-  Services token flow, which does not redirect.
+- **Authorised redirect URIs** — **required.** The app uses the OAuth redirect
+  flow, so these must match byte for byte, including the **trailing slash**:
+  - `https://orenaim.github.io/gdrive-md/`
+  - `http://localhost:5173/` (development)
+
+  > Get this wrong and Google refuses with `redirect_uri_mismatch` before the
+  > user sees anything. Note that a redirect URI may not carry a query string,
+  > which is why Drive's `state` parameter is stashed in `sessionStorage`
+  > across the round trip rather than riding along in the URL.
+  >
+  > The app derives this value as `origin + directory of the current path`, so
+  > it is `https://orenaim.github.io/gdrive-md/` in production and
+  > `http://localhost:5173/` in development.
 
 Copy the generated **Client ID** into `.env.local` (or your deployment's
 environment) as `VITE_GOOGLE_CLIENT_ID`.
@@ -281,39 +292,35 @@ rebuild.
 
 ## Troubleshooting
 
-**"Sign in to open this file" on every open.**
+**`redirect_uri_mismatch` immediately on launch.**
 
-Expected in V0, and worth understanding before treating it as a bug.
+The redirect URI is not registered, or does not match exactly. See step 4 —
+the trailing slash is part of the match.
 
-Google Identity Services implements the OAuth *token* flow with a popup
-window. There is no hidden-iframe variant, unlike the older `gapi` client.
-Setting `prompt: ''` removes the consent *screen* for a client that already
-holds a grant, but it does not remove the popup. Drive launches this app into
-a fresh tab, and that new document carries no user activation of its own — the
-click happened on the Drive page, and transient activation does not cross
-documents — so the browser blocks the popup.
+**"Sign in to open this file" appears at all.**
 
-The app handles this deliberately: it attempts the token request on load, and
-when the popup is blocked it shows the sign-in screen. The button press then
-supplies the activation the popup needs. So the cost is **one click per
-launch**, not a failure. Token refreshes later in the session happen while the
-user is actively editing, where the popup opens and closes unnoticed.
+It should not, for a signed-in user with an existing grant. The app redirects
+the top-level window to Google with `prompt=none`; when that succeeds, Google
+bounces straight back with a token and the user sees only a flicker.
 
-Installing the app domain-wide (step 6) removes the consent screen but *not*
-this click, because the obstacle is the popup blocker rather than consent.
+That screen means Google refused to proceed silently. Usual causes:
 
-To make the first open seamless, the app would have to use the **redirect
-flow** instead: navigate the top-level window to Google's authorisation
-endpoint and let it redirect back with the token in the URL fragment. No popup
-means no activation requirement. That needs Drive's `state` parameter to be
-preserved across the redirect (in `sessionStorage`) and a fragment-parsing
-step on return, and it adds a full page navigation to every launch. It was not
-built for V0.
+- The account has never granted this app access. The first launch is
+  necessarily interactive; every one after should be silent.
+- Third-party cookies are blocked for `accounts.google.com`.
+- The consent screen is in Testing mode and the account is not a test user.
 
-**Other causes of a sign-in loop**, if the click itself does not work:
-the origin does not exactly match an Authorised JavaScript origin (check
-scheme, port, no trailing slash), or third-party cookies are blocked for
-`accounts.google.com`.
+The app records that it tried, so a silent refusal cannot put it in a redirect
+loop — it falls back to the button exactly once per tab.
+
+**"Your Google session expired" mid-edit.**
+
+Access tokens last about an hour. Renewal is attempted in a hidden iframe,
+which depends on Google's cookies being readable in a third-party frame and so
+fails under strict cookie policies. When it fails, saving pauses and a
+Reconnect button appears rather than the page navigating away from an edit in
+progress. Unsaved text is checkpointed to IndexedDB throughout and is offered
+back on return.
 
 **The "Continue with Google" button itself does nothing.**
 The popup is being blocked even with a user gesture, which usually means the

@@ -269,6 +269,9 @@ export class DocumentSession {
         error: {
           message: driveError?.message ?? (error instanceof Error ? error.message : 'Save failed.'),
           retryable: driveError?.retryable ?? true,
+          // An expired token is not a transient failure; retrying the write
+          // cannot fix it, so say so and let the UI offer a way back.
+          ...(driveError?.kind === 'auth' ? { needsReauth: true } : {}),
         },
       });
       if (driveError?.kind === 'permission') {
