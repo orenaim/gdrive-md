@@ -321,10 +321,18 @@ browser is set to block all popups for the site, or the origin does not match
 an Authorised JavaScript origin from step 4.
 
 **"Wrong Google account".**
-Drive told the app which account opened the file and a different one is signed
-in here. Click **Switch account**. This is a deliberate guard — see
-`src/App.tsx` — because editing as the wrong identity misattributes changes in
-Drive's revision history.
+The signed-in account is not on the domain in `VITE_WORKSPACE_DOMAIN`. Click
+**Switch account**, or clear that variable if the app should accept any Google
+account.
+
+The app deliberately does *not* compare the signed-in identity against the
+`userId` Drive puts in the Open URL. Those are different identifier
+namespaces — an obfuscated profile ID versus a Drive permission ID — and
+comparing them rejects users who are signed in as exactly the right account.
+Identity is instead guaranteed by the OAuth `hint`, which preselects the
+account Drive named, and by the `drive.file` grant itself, which is per-file
+*and* per-account: the wrong identity gets a 404 rather than a silent edit
+under someone else's name.
 
 **403 on save for a Shared Drive file.**
 The user has Viewer or Commenter on the Shared Drive. Drive's own permissions

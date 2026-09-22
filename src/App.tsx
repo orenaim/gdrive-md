@@ -86,13 +86,22 @@ export function App() {
           return;
         }
 
-        // Drive told us which account opened the file. If we have ended up
-        // signed in as someone else, opening the document anyway would edit
-        // it as the wrong identity — which is exactly what must not happen.
-        if (open.userId && user.permissionId && user.permissionId !== open.userId) {
-          setBoot({ phase: 'wrong-account', signedInAs: user.emailAddress || 'another account' });
-          return;
-        }
+        // Note what is deliberately *not* checked here: whether
+        // `user.permissionId` equals the `userId` Drive put in the Open URL.
+        //
+        // They are different identifier namespaces. Drive's `state.userId` is
+        // an obfuscated profile ID; `about.get` returns a Drive *permission*
+        // ID. They coincide for some accounts and not others, so comparing
+        // them rejects people who are signed in as exactly the right account.
+        //
+        // The identity guarantee comes from two places that are actually
+        // sound. `hint` (see googleAuth) asks Google to preselect the account
+        // Drive named, so the right one is chosen by default. And the
+        // `drive.file` grant is per-file and per-account: a file opened by one
+        // account simply is not readable by another, so signing in as the
+        // wrong identity produces a 404 on load rather than a silent edit
+        // under the wrong name. Drive enforces this; we cannot do better by
+        // guessing at it.
 
         setBoot({
           phase: 'ready',
@@ -286,9 +295,9 @@ export function App() {
           }
         >
           <p>
-            This file was opened from a different Google account than the one signed in here
-            ({boot.signedInAs}). Editing it as the wrong identity could attribute your changes to
-            the wrong person.
+            You are signed in as <strong>{boot.signedInAs}</strong>, which is not
+            a {config.workspaceDomain} account. Headwall MD is configured for the{' '}
+            {config.workspaceDomain} workspace.
           </p>
         </CenteredMessage>
       </div>
