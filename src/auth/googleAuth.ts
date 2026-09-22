@@ -139,13 +139,20 @@ export class GoogleAuth {
     return this.pending;
   }
 
-  /** Forces an interactive sign-in, e.g. after a wrong-account decision. */
+  /**
+   * Sign-in driven by a real button press.
+   *
+   * The only thing this changes versus `getAccessToken` is that it is invoked
+   * from a user gesture, which is what lets the popup open at all. It still
+   * asks Google to complete without UI where it can, so an account that has
+   * already granted access sees a window flash rather than a consent screen.
+   */
   async signIn(options: { forceAccountChooser?: boolean } = {}): Promise<string> {
     this.accessToken = null;
     this.expiresAt = 0;
     return this.requestToken({
       silent: false,
-      prompt: options.forceAccountChooser ? 'select_account' : undefined,
+      ...(options.forceAccountChooser ? { prompt: 'select_account' } : {}),
     });
   }
 
@@ -202,10 +209,16 @@ export class GoogleAuth {
       };
 
       client.requestAccessToken({
-        // An empty prompt asks Google to complete silently when it can — the
-        // normal case for a token refresh during a long editing session, and
-        // the reason a user is not interrupted every hour.
-        prompt: options.prompt ?? (options.silent ? '' : 'consent'),
+        // An empty prompt lets Google complete without showing anything when
+        // the account already holds a grant — which, after the first
+        // authorisation, is every single launch.
+        //
+        // This must not default to 'consent'. That value does not mean "ask
+        // if needed"; it means "re-ask unconditionally", so it put the full
+        // consent screen in front of the user on every open even though
+        // nothing about the grant had changed. Only an explicit request for
+        // the account chooser overrides it.
+        prompt: options.prompt ?? '',
         ...(this.hint ? { hint: this.hint } : {}),
       });
     });
